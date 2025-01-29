@@ -120,15 +120,15 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
 
-    println!("Server running at http://localhost:8080");
+    println!("Server running at http://localhost:22994");
 
     HttpServer::new(|| {
         App::new()
             .service(web::resource("/").to(index))
             .service(web::resource("/upload").to(upload))
-            .service(web::resource("/image/{filename}").to(get_image))
+            .service(web::resource("/i/{filename}").to(get_image))
     })
-    .bind("127.0.0.1:8080")?
+    .bind("127.0.0.1:22994")?
     .run()
     .await
 }
