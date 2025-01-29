@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>Yükleme Başarılı</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color-light: #f5f5f5;
+            --container-bg-light: white;
+            --text-color-light: #333;
+            --border-color-light: #ddd;
+            --accent-color-light: #4CAF50;
+            --accent-hover-light: #45a049;
+
+            --bg-color-dark: #1a1a1a;
+            --container-bg-dark: #2d2d2d;
+            --text-color-dark: #ffffff;
+            --border-color-dark: #404040;
+            --accent-color-dark: #5cdb5c;
+            --accent-hover-dark: #4ec74e;
+        }
+
+        html[data-theme="light"] {
+            --bg-color: var(--bg-color-light);
+            --container-bg: var(--container-bg-light);
+            --text-color: var(--text-color-light);
+            --border-color: var(--border-color-light);
+            --accent-color: var(--accent-color-light);
+            --accent-hover: var(--accent-hover-light);
+        }
+
+        html[data-theme="dark"] {
+            --bg-color: var(--bg-color-dark);
+            --container-bg: var(--container-bg-dark);
+            --text-color: var(--text-color-dark);
+            --border-color: var(--border-color-dark);
+            --accent-color: var(--accent-color-dark);
+            --accent-hover: var(--accent-hover-dark);
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.3s ease;
+        }
+
+        .success-container {
+            background-color: var(--container-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            position: relative;
+        }
+
+        .theme-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: var(--text-color);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+
+        .theme-toggle:hover {
+            background-color: rgba(128, 128, 128, 0.2);
+        }
+
+        h1 {
+            color: var(--accent-color);
+            font-size: 2em;
+            margin-bottom: 30px;
+        }
+
+        .url-container {
+            background-color: var(--bg-color);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .url-container:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .url-link {
+            color: var(--accent-color);
+            text-decoration: none;
+            font-size: 1.1em;
+            word-break: break-all;
+            display: block;
+            margin: 10px 0;
+        }
+
+        .url-link:hover {
+            color: var(--accent-hover);
+        }
+
+        .copy-button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .copy-button:hover {
+            background-color: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .home-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: var(--container-bg);
+            color: var(--text-color);
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+            border: 1px solid var(--border-color);
+        }
+
+        .home-button:hover {
+            background-color: var(--accent-color);
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .success-icon {
+            font-size: 3em;
+            color: var(--accent-color);
+            margin-bottom: 20px;
+        }
+
+        @keyframes copied {
+            0% { opacity: 0; transform: translateY(10px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        .copied-message {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: var(--accent-color);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            display: none;
+            animation: copied 0.3s ease;
+        }
+
+        .copied-message.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="success-container">
+        <button class="theme-toggle" onclick="toggleTheme()" aria-label="Tema Değiştir">
+            <i class="fas fa-sun"></i>
+        </button>
+        <i class="fas fa-check-circle success-icon"></i>
+        <h1>Resim Başarıyla Yüklendi!</h1>
+        <p>Resminize aşağıdaki URL'den ulaşabilirsiniz:</p>
+        <div class="url-container">
+            <a href="/image/{}.{}" class="url-link" id="image-url">/image/{}.{}</a>
+            <button onclick="copyUrl()" class="copy-button">
+                <i class="fas fa-copy"></i> Linki Kopyala
+            </button>
+        </div>
+        <a href="/" class="home-button">
+            <i class="fas fa-home"></i>
+            Ana Sayfaya Dön
+        </a>
+    </div>
+    <div class="copied-message" id="copied-message">URL kopyalandı!</div>
+
+    <script>
+        // Tema yönetimi
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        }
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        }
+
+        function updateThemeIcon(theme) {
+            const themeToggle = document.querySelector('.theme-toggle i');
+            themeToggle.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+
+        // URL kopyalama
+        function copyUrl() {
+            const url = document.getElementById('image-url').href;
+            const baseUrl = window.location.origin;
+            const cleanUrl = url.replace(baseUrl, ''); // URL'den base URL'yi temizle
+            navigator.clipboard.writeText(baseUrl + cleanUrl).then(() => {
+                const message = document.getElementById('copied-message');
+                message.classList.add('show');
+                setTimeout(() => {
+                    message.classList.remove('show');
+                }, 2000);
+            });
+        }
+
+        // Sayfa yüklendiğinde tema ayarını yükle
+        document.addEventListener('DOMContentLoaded', loadTheme);
+    </script>
+</body>
+</html> 

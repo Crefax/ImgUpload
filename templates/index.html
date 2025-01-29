@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <title>Resim Yükleme</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color-light: #f5f5f5;
+            --container-bg-light: white;
+            --text-color-light: #333;
+            --border-color-light: #ddd;
+            --accent-color-light: #4CAF50;
+            --accent-hover-light: #45a049;
+
+            --bg-color-dark: #1a1a1a;
+            --container-bg-dark: #2d2d2d;
+            --text-color-dark: #ffffff;
+            --border-color-dark: #404040;
+            --accent-color-dark: #5cdb5c;
+            --accent-hover-dark: #4ec74e;
+        }
+
+        html[data-theme="light"] {
+            --bg-color: var(--bg-color-light);
+            --container-bg: var(--container-bg-light);
+            --text-color: var(--text-color-light);
+            --border-color: var(--border-color-light);
+            --accent-color: var(--accent-color-light);
+            --accent-hover: var(--accent-hover-light);
+        }
+
+        html[data-theme="dark"] {
+            --bg-color: var(--bg-color-dark);
+            --container-bg: var(--container-bg-dark);
+            --text-color: var(--text-color-dark);
+            --border-color: var(--border-color-dark);
+            --accent-color: var(--accent-color-dark);
+            --accent-hover: var(--accent-hover-dark);
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: all 0.3s ease;
+        }
+
+        .upload-container {
+            background-color: var(--container-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            position: relative;
+        }
+
+        .theme-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: var(--text-color);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+
+        .theme-toggle:hover {
+            background-color: rgba(128, 128, 128, 0.2);
+        }
+
+        h1 {
+            color: var(--text-color);
+            text-align: center;
+            font-size: 2em;
+            margin-bottom: 30px;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .file-input-container {
+            position: relative;
+            text-align: center;
+        }
+
+        .file-input-label {
+            display: inline-block;
+            padding: 15px 25px;
+            background-color: var(--container-bg);
+            border: 2px dashed var(--accent-color);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 80%;
+            box-sizing: border-box;
+        }
+
+        .file-input-label:hover {
+            border-color: var(--accent-hover);
+            background-color: rgba(92, 219, 92, 0.1);
+        }
+
+        input[type="file"] {
+            position: absolute;
+            width: 0.1px;
+            height: 0.1px;
+            opacity: 0;
+            overflow: hidden;
+            z-index: -1;
+        }
+
+        .upload-icon {
+            font-size: 2em;
+            color: var(--accent-color);
+            margin-bottom: 10px;
+        }
+
+        button[type="submit"] {
+            background-color: var(--accent-color);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 35px;
+        }
+
+        button[type="submit"]:hover {
+            background-color: var(--accent-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        #file-name {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: var(--text-color);
+        }
+
+        .preview-container {
+            margin-top: 20px;
+            text-align: center;
+            display: none;
+        }
+
+        .preview-container.active {
+            display: block;
+        }
+
+        .preview-image {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            margin-top: 10px;
+        }
+
+        .paste-hint {
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.8em;
+            color: var(--text-color);
+            opacity: 0.7;
+            width: 100%;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .remove-preview {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 12px;
+            cursor: pointer;
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .remove-preview:hover {
+            background: var(--accent-hover);
+            transform: scale(1.1);
+        }
+
+        .preview-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="upload-container">
+        <button class="theme-toggle" onclick="toggleTheme()" aria-label="Tema Değiştir">
+            <i class="fas fa-sun"></i>
+        </button>
+        <h1>Resim Yükleme</h1>
+        <form action="/upload" method="post" enctype="multipart/form-data" id="upload-form">
+            <div class="file-input-container">
+                <label class="file-input-label" for="file">
+                    <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                    <div>Resim seçmek için tıklayın veya sürükleyin</div>
+                    <div id="file-name"></div>
+                </label>
+                <input type="file" id="file" name="file" accept="image/*" required>
+                <div class="paste-hint">
+                    <i class="fas fa-keyboard"></i> Ctrl+V ile panodaki resmi yapıştırabilirsiniz
+                </div>
+            </div>
+            <div class="preview-container" id="preview-container">
+                <div class="preview-wrapper">
+                    <img id="preview-image" class="preview-image" src="" alt="Önizleme">
+                    <button type="button" class="remove-preview" onclick="removePreview()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <button type="submit">Yükle</button>
+        </form>
+    </div>
+
+    <script>
+        // Tema yönetimi
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        }
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        }
+
+        function updateThemeIcon(theme) {
+            const themeToggle = document.querySelector('.theme-toggle i');
+            themeToggle.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+
+        // Sayfa yüklendiğinde tema ayarını yükle
+        document.addEventListener('DOMContentLoaded', loadTheme);
+
+        // Seçilen dosya adını göster
+        document.getElementById('file').addEventListener('change', function(e) {
+            const fileName = e.target.files[0]?.name;
+            document.getElementById('file-name').textContent = fileName || '';
+        });
+
+        // Sürükle-bırak desteği
+        const dropZone = document.querySelector('.file-input-label');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            dropZone.style.backgroundColor = 'rgba(92, 219, 92, 0.1)';
+            dropZone.style.borderColor = 'var(--accent-hover)';
+        }
+
+        function unhighlight(e) {
+            dropZone.style.backgroundColor = '';
+            dropZone.style.borderColor = '';
+        }
+
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            document.getElementById('file').files = files;
+            document.getElementById('file-name').textContent = files[0]?.name || '';
+        }
+
+        // Resim önizleme fonksiyonu
+        function showPreview(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const previewContainer = document.getElementById('preview-container');
+                const previewImage = document.getElementById('preview-image');
+                previewImage.src = e.target.result;
+                previewContainer.classList.add('active');
+            }
+            reader.readAsDataURL(file);
+        }
+
+        // Önizlemeyi kaldır
+        function removePreview() {
+            const previewContainer = document.getElementById('preview-container');
+            const fileInput = document.getElementById('file');
+            const fileName = document.getElementById('file-name');
+            
+            previewContainer.classList.remove('active');
+            fileInput.value = '';
+            fileName.textContent = '';
+        }
+
+        // Dosya seçildiğinde önizleme göster
+        document.getElementById('file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('file-name').textContent = file.name;
+                showPreview(file);
+            }
+        });
+
+        // Pano (clipboard) olayını dinle
+        document.addEventListener('paste', function(e) {
+            const items = e.clipboardData.items;
+            
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    
+                    const file = items[i].getAsFile();
+                    const container = new DataTransfer();
+                    container.items.add(file);
+                    
+                    const fileInput = document.getElementById('file');
+                    fileInput.files = container.files;
+                    
+                    document.getElementById('file-name').textContent = 'Panodan yapıştırılan resim';
+                    showPreview(file);
+                    break;
+                }
+            }
+        });
+
+        // Sürükle-bırak işleminde önizleme göster
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length > 0) {
+                document.getElementById('file').files = files;
+                document.getElementById('file-name').textContent = files[0].name;
+                showPreview(files[0]);
+            }
+        }
+    </script>
+</body>
+</html> 
