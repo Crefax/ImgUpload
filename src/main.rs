@@ -40,7 +40,14 @@ fn is_safe_path(path: &Path) -> bool {
     
     // Sadece belirli dosya uzantılarına izin ver
     if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
-        matches!(extension.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp")
+        matches!(extension.to_lowercase().as_str(), 
+            // Resim formatları
+            "jpg" | "jpeg" | "png" | "gif" | "webp" |
+            // Video formatları
+            "mp4" | "webm" | "avi" | "mov" | "mkv" |
+            // Ses formatları
+            "mp3" | "wav" | "ogg" | "m4a"
+        )
     } else {
         false
     }
@@ -69,6 +76,20 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
                         .and_then(|ext| ext.to_str())
                         .unwrap_or("jpg");
                     
+                    // Dosya uzantısı kontrolü
+                    if !matches!(file_ext.to_lowercase().as_str(), 
+                        // Resim formatları
+                        "jpg" | "jpeg" | "png" | "gif" | "webp" |
+                        // Video formatları
+                        "mp4" | "webm" | "avi" | "mov" | "mkv" |
+                        // Ses formatları
+                        "mp3" | "wav" | "ogg" | "m4a"
+                    ) {
+                        return Ok(HttpResponse::BadRequest()
+                            .content_type("text/html; charset=utf-8")
+                            .body("Desteklenmeyen dosya formatı. Lütfen geçerli bir medya dosyası seçin."));
+                    }
+                    
                     let filepath = format!("{}/{}.{}", UPLOAD_DIR, random_id, file_ext);
                     
                     let mut f = web::block(move || std::fs::File::create(&filepath))
@@ -88,7 +109,7 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
                         
                         return Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html));
                     } else {
-                        return Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Dosya boş görünüyor. Lütfen geçerli bir resim dosyası seçin."));
+                        return Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Dosya boş görünüyor. Lütfen geçerli bir medya dosyası seçin."));
                     }
                 } else {
                     return Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Dosya adı bulunamadı."));
@@ -97,7 +118,7 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
         }
     }
     
-    Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Lütfen bir resim dosyası seçin ve tekrar deneyin."))
+    Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Lütfen bir medya dosyası seçin ve tekrar deneyin."))
 }
 
 async fn get_image(path: web::Path<String>) -> Result<NamedFile, Error> {
