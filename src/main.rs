@@ -105,7 +105,35 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
                     
                     if file_size > 0 {
                         let success_template = fs::read_to_string("templates/success.html")?;
-                        let response_html = success_template.replace("{}.{}", &format!("{}.{}", random_id, file_ext));
+                        let file_url = format!("{}.{}", random_id, file_ext);
+                        
+                        // Dosya türüne göre önizleme HTML'i oluştur
+                        let preview_html = match file_ext.to_lowercase().as_str() {
+                            // Video formatları için
+                            "mp4" | "webm" | "mov" => format!(
+                                r#"<video width="100%" controls>
+                                    <source src="/i/{}" type="video/{}" />
+                                    Tarayıcınız video etiketini desteklemiyor.
+                                </video>"#,
+                                file_url,
+                                if file_ext == "mov" { "mp4" } else { file_ext }
+                            ),
+                            // Ses formatları için
+                            "mp3" | "wav" | "ogg" | "m4a" => format!(
+                                r#"<audio controls>
+                                    <source src="/i/{}" type="audio/{}" />
+                                    Tarayıcınız ses etiketini desteklemiyor.
+                                </audio>"#,
+                                file_url,
+                                if file_ext == "m4a" { "mp4" } else { file_ext }
+                            ),
+                            // Resim formatları için
+                            _ => format!(r#"<img src="/i/{}" alt="Yüklenen resim" style="max-width: 100%;">"#, file_url)
+                        };
+                        
+                        let response_html = success_template
+                            .replace("{PREVIEW}", &preview_html)
+                            .replace("{FILE_URL}", &format!("/i/{}", file_url));
                         
                         return Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html));
                     } else {
