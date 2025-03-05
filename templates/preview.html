@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta property="og:type" content="video.other">
+    <meta property="og:title" content="Video Önizleme">
+    <meta property="og:description" content="Yüklenen video dosyası">
+    <meta property="og:video" content="/i/{FILE_NAME}">
+    <meta property="og:video:type" content="video/mp4">
+    <meta property="og:video:width" content="1280">
+    <meta property="og:video:height" content="720">
+    <meta property="og:image" content="/i/{FILE_NAME}">
+    <title>Video Önizleme</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color-dark: #1a1a1a;
+            --container-bg-dark: #2d2d2d;
+            --text-color-dark: #ffffff;
+            --accent-color-dark: #5cdb5c;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color-dark);
+            color: var(--text-color-dark);
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            background-color: var(--container-bg-dark);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .video-container {
+            position: relative;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+            height: 0;
+            overflow: hidden;
+            max-width: 100%;
+        }
+
+        .video-container video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+        }
+
+        .download-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: var(--accent-color-dark);
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="video-container">
+            <video controls>
+                <source src="/i/{FILE_NAME}" type="video/mp4">
+                Tarayıcınız video etiketini desteklemiyor.
+            </video>
+        </div>
+        <a href="/i/{FILE_NAME}" class="download-link" download>
+            <i class="fas fa-download"></i> Videoyu İndir
+        </a>
+    </div>
+</body>
+</html> 

@@ -106,6 +106,7 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
                     if file_size > 0 {
                         let success_template = fs::read_to_string("templates/success.html")?;
                         let file_url = format!("{}.{}", random_id, file_ext);
+                        let preview_url = format!("/p/{}.{}", random_id, file_ext);
                         
                         // Dosya türüne göre önizleme HTML'i oluştur
                         let preview_html = match file_ext.to_lowercase().as_str() {
@@ -133,7 +134,7 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
                         
                         let response_html = success_template
                             .replace("{PREVIEW}", &preview_html)
-                            .replace("{FILE_URL}", &format!("/i/{}", file_url));
+                            .replace("{FILE_URL}", &preview_url);
                         
                         return Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html));
                     } else {
@@ -164,6 +165,30 @@ async fn get_image(path: web::Path<String>) -> Result<NamedFile, Error> {
     }
 }
 
+async fn get_preview(path: web::Path<String>) -> Result<HttpResponse, Error> {
+    let filename = path.into_inner();
+    let file_path = PathBuf::from(UPLOAD_DIR).join(&filename);
+
+    // Güvenlik kontrolü
+    if !is_safe_path(&file_path) {
+        return Err(actix_web::error::ErrorForbidden("Erişim reddedildi."));
+    }
+
+    // Dosya uzantısını kontrol et
+    if let Some(extension) = file_path.extension().and_then(|e| e.to_str()) {
+        match extension.to_lowercase().as_str() {
+            "mp4" | "webm" | "mov" => {
+                let preview_template = fs::read_to_string("templates/preview.html")?;
+                let response_html = preview_template.replace("{FILE_NAME}", &filename);
+                Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html))
+            },
+            _ => Ok(HttpResponse::Found().append_header(("Location", format!("/i/{}", filename))).finish())
+        }
+    } else {
+        Ok(HttpResponse::Found().append_header(("Location", format!("/i/{}", filename))).finish())
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "actix_web=info");
@@ -176,6 +201,7 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/").to(index))
             .service(web::resource("/upload").to(upload))
             .service(web::resource("/i/{filename}").to(get_image))
+            .service(web::resource("/p/{filename}").to(get_preview))
     })
     .bind("127.0.0.1:22994")?
     .run()
