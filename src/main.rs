@@ -12,6 +12,7 @@ use serde_json;
 const UPLOAD_DIR: &str = "uploads";
 const URL_LENGTH: usize = 5;
 const MAX_FILE_SIZE: usize = 250_000_000; // 250 MB
+const SERVER_URL: &str = "http://localhost:22994"; // Sunucu URL'i
 
 fn generate_random_string() -> String {
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -230,9 +231,11 @@ async fn get_preview(path: web::Path<String>) -> Result<HttpResponse, Error> {
                     "Video Önizleme".to_owned()
                 };
 
+                let full_url = format!("{}/i/{}", SERVER_URL, filename);
                 let response_html = preview_template
                     .replace("{FILE_NAME}", &filename)
-                    .replace("{TITLE}", &title);
+                    .replace("{TITLE}", &title)
+                    .replace("/i/{FILE_NAME}", &full_url);
                     
                 Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html))
             },
