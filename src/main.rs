@@ -1,4 +1,4 @@
-use actix_web::{web, App, HttpServer, HttpResponse, Error, HttpRequest};
+use actix_web::{web, App, HttpServer, HttpResponse, Error};
 use actix_multipart::Multipart;
 use actix_files::NamedFile;
 use futures::{StreamExt, TryStreamExt};
@@ -7,6 +7,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use mime_guess;
+use serde_json;
 
 const UPLOAD_DIR: &str = "uploads";
 const URL_LENGTH: usize = 5;
@@ -62,91 +63,116 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
         fs::create_dir(UPLOAD_DIR)?;
     }
 
-    let field_opt = payload.try_next().await?;
-    
-    if let Some(mut field) = field_opt {
-        let content_type = field.content_disposition().clone();
+    let mut title = String::new();
+    let mut file_data: Option<(String, String, Vec<u8>)> = None;
+
+    while let Some(mut field) = payload.try_next().await? {
+        let content_disposition = field.content_disposition().clone();
         
-        if let Some(name) = content_type.get_name() {
-            if name == "file" {
-                if let Some(filename) = content_type.get_filename() {
-                    let random_id = generate_random_string();
-                    let file_ext = Path::new(filename)
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .unwrap_or("jpg");
-                    
-                    // Dosya uzantısı kontrolü
-                    if !matches!(file_ext.to_lowercase().as_str(), 
-                        // Resim formatları
-                        "jpg" | "jpeg" | "png" | "gif" | "webp" |
-                        // Video formatları
-                        "mp4" | "webm" | "avi" | "mov" | "mkv" |
-                        // Ses formatları
-                        "mp3" | "wav" | "ogg" | "m4a"
-                    ) {
-                        return Ok(HttpResponse::BadRequest()
-                            .content_type("text/html; charset=utf-8")
-                            .body("Desteklenmeyen dosya formatı. Lütfen geçerli bir medya dosyası seçin."));
+        if let Some(name) = content_disposition.get_name() {
+            match name {
+                "file" => {
+                    if let Some(filename) = content_disposition.get_filename() {
+                        let random_id = generate_random_string();
+                        let file_ext = Path::new(filename)
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                            .unwrap_or("jpg");
+                        
+                        // Dosya uzantısı kontrolü
+                        if !matches!(file_ext.to_lowercase().as_str(), 
+                            // Resim formatları
+                            "jpg" | "jpeg" | "png" | "gif" | "webp" |
+                            // Video formatları
+                            "mp4" | "webm" | "avi" | "mov" | "mkv" |
+                            // Ses formatları
+                            "mp3" | "wav" | "ogg" | "m4a"
+                        ) {
+                            return Ok(HttpResponse::BadRequest()
+                                .content_type("text/html; charset=utf-8")
+                                .body("Desteklenmeyen dosya formatı. Lütfen geçerli bir medya dosyası seçin."));
+                        }
+
+                        let mut buffer = Vec::new();
+                        while let Some(chunk) = field.next().await {
+                            buffer.extend_from_slice(&chunk?);
+                        }
+
+                        file_data = Some((random_id, file_ext.to_string(), buffer));
                     }
-                    
-                    let filepath = format!("{}/{}.{}", UPLOAD_DIR, random_id, file_ext);
-                    
-                    let mut f = web::block(move || std::fs::File::create(&filepath))
-                        .await
-                        .unwrap()?;
-                    
-                    let mut file_size = 0;
+                },
+                "title" => {
+                    let mut buffer = Vec::new();
                     while let Some(chunk) = field.next().await {
-                        let data = chunk?;
-                        file_size += data.len();
-                        f = web::block(move || f.write_all(&data).map(|_| f)).await?.unwrap();
+                        buffer.extend_from_slice(&chunk?);
                     }
-                    
-                    if file_size > 0 {
-                        let success_template = fs::read_to_string("templates/success.html")?;
-                        let file_url = format!("{}.{}", random_id, file_ext);
-                        let preview_url = format!("/p/{}.{}", random_id, file_ext);
-                        
-                        // Dosya türüne göre önizleme HTML'i oluştur
-                        let preview_html = match file_ext.to_lowercase().as_str() {
-                            // Video formatları için
-                            "mp4" | "webm" | "mov" => format!(
-                                r#"<video width="100%" controls>
-                                    <source src="/i/{}" type="video/{}" />
-                                    Tarayıcınız video etiketini desteklemiyor.
-                                </video>"#,
-                                file_url,
-                                if file_ext == "mov" { "mp4" } else { file_ext }
-                            ),
-                            // Ses formatları için
-                            "mp3" | "wav" | "ogg" | "m4a" => format!(
-                                r#"<audio controls>
-                                    <source src="/i/{}" type="audio/{}" />
-                                    Tarayıcınız ses etiketini desteklemiyor.
-                                </audio>"#,
-                                file_url,
-                                if file_ext == "m4a" { "mp4" } else { file_ext }
-                            ),
-                            // Resim formatları için
-                            _ => format!(r#"<img src="/i/{}" alt="Yüklenen resim" style="max-width: 100%;">"#, file_url)
-                        };
-                        
-                        let response_html = success_template
-                            .replace("{PREVIEW}", &preview_html)
-                            .replace("{FILE_URL}", &preview_url);
-                        
-                        return Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html));
-                    } else {
-                        return Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Dosya boş görünüyor. Lütfen geçerli bir medya dosyası seçin."));
-                    }
-                } else {
-                    return Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Dosya adı bulunamadı."));
-                }
+                    title = String::from_utf8_lossy(&buffer).to_string();
+                },
+                _ => {}
             }
         }
     }
-    
+
+    if let Some((random_id, file_ext, buffer)) = file_data {
+        let filepath = format!("{}/{}.{}", UPLOAD_DIR, random_id, file_ext);
+        
+        if buffer.len() > 0 {
+            let mut f = web::block(move || std::fs::File::create(&filepath))
+                .await
+                .unwrap()?;
+            
+            f = web::block(move || f.write_all(&buffer).map(|_| f)).await?.unwrap();
+
+            let success_template = fs::read_to_string("templates/success.html")?;
+            let file_url = format!("{}.{}", random_id, file_ext);
+            
+            // Video dosyaları için preview URL'i, diğerleri için doğrudan dosya URL'i kullan
+            let final_url = match file_ext.to_lowercase().as_str() {
+                "mp4" | "webm" | "mov" => format!("/p/{}", file_url),
+                _ => format!("/i/{}", file_url)
+            };
+
+            // Dosya türüne göre önizleme HTML'i oluştur
+            let preview_html = match file_ext.to_lowercase().as_str() {
+                // Video formatları için
+                "mp4" | "webm" | "mov" => format!(
+                    r#"<video width="100%" controls>
+                        <source src="/i/{}" type="video/{}" />
+                        Tarayıcınız video etiketini desteklemiyor.
+                    </video>"#,
+                    file_url,
+                    if file_ext == "mov" { "mp4" } else { &file_ext }
+                ),
+                // Ses formatları için
+                "mp3" | "wav" | "ogg" | "m4a" => format!(
+                    r#"<audio controls>
+                        <source src="/i/{}" type="audio/{}" />
+                        Tarayıcınız ses etiketini desteklemiyor.
+                    </audio>"#,
+                    file_url,
+                    if file_ext == "m4a" { "mp4" } else { &file_ext }
+                ),
+                // Resim formatları için
+                _ => format!(r#"<img src="/i/{}" alt="Yüklenen resim" style="max-width: 100%;">"#, file_url)
+            };
+            
+            let response_html = success_template
+                .replace("{PREVIEW}", &preview_html)
+                .replace("{FILE_URL}", &final_url);
+            
+            // Video başlığını metadata.json dosyasına kaydet
+            if matches!(file_ext.to_lowercase().as_str(), "mp4" | "webm" | "mov") && !title.is_empty() {
+                let metadata_path = format!("{}/{}.json", UPLOAD_DIR, random_id);
+                let metadata = format!(r#"{{"title": "{}", "filename": "{}.{}"}}"#, title, random_id, file_ext);
+                fs::write(metadata_path, metadata)?;
+            }
+
+            return Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html));
+        } else {
+            return Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Dosya boş görünüyor. Lütfen geçerli bir medya dosyası seçin."));
+        }
+    }
+
     Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Lütfen bir medya dosyası seçin ve tekrar deneyin."))
 }
 
@@ -179,7 +205,24 @@ async fn get_preview(path: web::Path<String>) -> Result<HttpResponse, Error> {
         match extension.to_lowercase().as_str() {
             "mp4" | "webm" | "mov" => {
                 let preview_template = fs::read_to_string("templates/preview.html")?;
-                let response_html = preview_template.replace("{FILE_NAME}", &filename);
+                
+                // Video başlığını metadata.json dosyasından oku
+                let file_stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                let metadata_path = format!("{}/{}.json", UPLOAD_DIR, file_stem);
+                let title = if let Ok(metadata) = fs::read_to_string(metadata_path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&metadata) {
+                        json["title"].as_str().unwrap_or("Video Önizleme").to_owned()
+                    } else {
+                        "Video Önizleme".to_owned()
+                    }
+                } else {
+                    "Video Önizleme".to_owned()
+                };
+
+                let response_html = preview_template
+                    .replace("{FILE_NAME}", &filename)
+                    .replace("{TITLE}", &title);
+                    
                 Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html))
             },
             _ => Ok(HttpResponse::Found().append_header(("Location", format!("/i/{}", filename))).finish())
