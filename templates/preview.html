@@ -4,26 +4,26 @@
     <meta charset="UTF-8">
     <title>{TITLE}</title>
     
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="video.other">
+    <!-- Temel Meta -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{TITLE} - Video önizlemesi">
+    
+    <!-- Discord ve OpenGraph -->
+    <meta property="og:site_name" content="Medya Paylaşım">
     <meta property="og:title" content="{TITLE}">
-    <meta property="og:description" content="Video önizlemesi">
-    <meta property="og:video" content="/i/{FILE_NAME}">
-    <meta property="og:video:url" content="/i/{FILE_NAME}">
-    <meta property="og:video:secure_url" content="/i/{FILE_NAME}">
+    <meta property="og:description" content="{TITLE} - Video önizlemesi">
+    <meta property="og:type" content="video">
+    <meta property="og:url" content="{FULL_URL}">
+    <meta property="og:video:url" content="{FULL_URL}">
+    <meta property="og:video:secure_url" content="{FULL_URL}">
     <meta property="og:video:type" content="video/mp4">
     <meta property="og:video:width" content="1280">
     <meta property="og:video:height" content="720">
-
-    <!-- Discord Specific -->
-    <meta property="discord:color" content="#2ba6e3">
-    <meta name="theme-color" content="#2ba6e3">
-    <meta name="twitter:card" content="player">
-    <meta name="twitter:player" content="/i/{FILE_NAME}">
-    <meta name="twitter:player:width" content="1280">
-    <meta name="twitter:player:height" content="720">
-    <meta name="twitter:player:stream" content="/i/{FILE_NAME}">
-    <meta name="twitter:player:stream:content_type" content="video/mp4">
+    <meta property="og:image" content="{THUMBNAIL_URL}">
+    
+    <!-- Discord Özel -->
+    <meta name="theme-color" content="#5865F2">
+    <meta name="twitter:card" content="summary_large_image">
     
     <style>
         body {
@@ -36,6 +36,7 @@
         .video-container {
             max-width: 1280px;
             margin: 0 auto;
+            padding: 20px;
         }
         video {
             width: 100%;
@@ -46,20 +47,51 @@
             text-align: center;
             margin-bottom: 20px;
         }
+        .download-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 20px;
+            padding: 12px 24px;
+            background-color: #5865F2;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .download-link:hover {
+            background-color: #4752C4;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .download-link svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+        .button-container {
+            text-align: center;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="video-container">
         <h1>{TITLE}</h1>
-        <div class="video-container">
-            <video controls>
-                <source src="/i/{FILE_NAME}" type="video/mp4">
-                Tarayıcınız video etiketini desteklemiyor.
-            </video>
+        <video controls preload="metadata" poster="{THUMBNAIL_URL}">
+            <source src="{FULL_URL}" type="video/mp4">
+            Tarayıcınız video etiketini desteklemiyor.
+        </video>
+        <div class="button-container">
+            <a href="{FULL_URL}" class="download-link" download>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+                Videoyu İndir
+            </a>
         </div>
-        <a href="/i/{FILE_NAME}" class="download-link" download>
-            <i class="fas fa-download"></i> Videoyu İndir
-        </a>
     </div>
 </body>
 </html> 

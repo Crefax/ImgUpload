@@ -232,12 +232,19 @@ async fn get_preview(path: web::Path<String>) -> Result<HttpResponse, Error> {
                 };
 
                 let full_url = format!("{}/i/{}", SERVER_URL, filename);
+                let thumbnail_url = format!("{}/i/{}.jpg", SERVER_URL, file_stem); // Thumbnail için .jpg uzantısı
+
                 let response_html = preview_template
-                    .replace("{FILE_NAME}", &filename)
                     .replace("{TITLE}", &title)
-                    .replace("/i/{FILE_NAME}", &full_url);
+                    .replace("{FULL_URL}", &full_url)
+                    .replace("{THUMBNAIL_URL}", &full_url); // Şimdilik thumbnail olarak video URL'sini kullan
                     
-                Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html))
+                Ok(HttpResponse::Ok()
+                    .content_type("text/html; charset=utf-8")
+                    .append_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+                    .append_header(("Pragma", "no-cache"))
+                    .append_header(("Expires", "0"))
+                    .body(response_html))
             },
             _ => Ok(HttpResponse::Found().append_header(("Location", format!("/i/{}", filename))).finish())
         }
