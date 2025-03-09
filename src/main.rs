@@ -11,6 +11,7 @@ use serde_json;
 
 const UPLOAD_DIR: &str = "uploads";
 const URL_LENGTH: usize = 5;
+const MAX_FILE_SIZE: usize = 250_000_000; // 250 MB
 
 fn generate_random_string() -> String {
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -64,7 +65,7 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
     }
 
     let mut title = String::new();
-    let mut file_data: Option<(String, String, Vec<u8>)> = None;
+    let mut file_info: Option<(String, String, PathBuf)> = None;
 
     while let Some(mut field) = payload.try_next().await? {
         let content_disposition = field.content_disposition().clone();
@@ -93,12 +94,34 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
                                 .body("Desteklenmeyen dosya formatı. Lütfen geçerli bir medya dosyası seçin."));
                         }
 
-                        let mut buffer = Vec::new();
+                        let filepath = PathBuf::from(format!("{}/{}.{}", UPLOAD_DIR, random_id, file_ext));
+                        let filepath_clone = filepath.clone();
+                        let mut f = web::block(move || std::fs::File::create(&filepath_clone))
+                            .await
+                            .unwrap()?;
+
+                        // Dosyayı chunk'lar halinde yaz
+                        let mut total_bytes = 0;
                         while let Some(chunk) = field.next().await {
-                            buffer.extend_from_slice(&chunk?);
+                            let data = chunk?;
+                            total_bytes += data.len();
+                            
+                            // Boyut kontrolü
+                            if total_bytes > MAX_FILE_SIZE {
+                                // Dosyayı sil ve hata döndür
+                                let filepath_clone2 = filepath.clone();
+                                let _ = web::block(move || std::fs::remove_file(&filepath_clone2)).await;
+                                return Ok(HttpResponse::BadRequest()
+                                    .content_type("text/html; charset=utf-8")
+                                    .body("Dosya boyutu çok büyük."));
+                            }
+                            
+                            f = web::block(move || f.write_all(&data).map(|_| f)).await?.unwrap();
                         }
 
-                        file_data = Some((random_id, file_ext.to_string(), buffer));
+                        if total_bytes > 0 {
+                            file_info = Some((random_id, file_ext.to_string(), filepath));
+                        }
                     }
                 },
                 "title" => {
@@ -113,64 +136,52 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
         }
     }
 
-    if let Some((random_id, file_ext, buffer)) = file_data {
-        let filepath = format!("{}/{}.{}", UPLOAD_DIR, random_id, file_ext);
+    if let Some((random_id, file_ext, _)) = file_info {
+        let success_template = fs::read_to_string("templates/success.html")?;
+        let file_url = format!("{}.{}", random_id, file_ext);
         
-        if buffer.len() > 0 {
-            let mut f = web::block(move || std::fs::File::create(&filepath))
-                .await
-                .unwrap()?;
-            
-            f = web::block(move || f.write_all(&buffer).map(|_| f)).await?.unwrap();
+        // Video dosyaları için preview URL'i, diğerleri için doğrudan dosya URL'i kullan
+        let final_url = match file_ext.to_lowercase().as_str() {
+            "mp4" | "webm" | "mov" => format!("/p/{}", file_url),
+            _ => format!("/i/{}", file_url)
+        };
 
-            let success_template = fs::read_to_string("templates/success.html")?;
-            let file_url = format!("{}.{}", random_id, file_ext);
-            
-            // Video dosyaları için preview URL'i, diğerleri için doğrudan dosya URL'i kullan
-            let final_url = match file_ext.to_lowercase().as_str() {
-                "mp4" | "webm" | "mov" => format!("/p/{}", file_url),
-                _ => format!("/i/{}", file_url)
-            };
-
-            // Dosya türüne göre önizleme HTML'i oluştur
-            let preview_html = match file_ext.to_lowercase().as_str() {
-                // Video formatları için
-                "mp4" | "webm" | "mov" => format!(
-                    r#"<video width="100%" controls>
-                        <source src="/i/{}" type="video/{}" />
-                        Tarayıcınız video etiketini desteklemiyor.
-                    </video>"#,
-                    file_url,
-                    if file_ext == "mov" { "mp4" } else { &file_ext }
-                ),
-                // Ses formatları için
-                "mp3" | "wav" | "ogg" | "m4a" => format!(
-                    r#"<audio controls>
-                        <source src="/i/{}" type="audio/{}" />
-                        Tarayıcınız ses etiketini desteklemiyor.
-                    </audio>"#,
-                    file_url,
-                    if file_ext == "m4a" { "mp4" } else { &file_ext }
-                ),
-                // Resim formatları için
-                _ => format!(r#"<img src="/i/{}" alt="Yüklenen resim" style="max-width: 100%;">"#, file_url)
-            };
-            
-            let response_html = success_template
-                .replace("{PREVIEW}", &preview_html)
-                .replace("{FILE_URL}", &final_url);
-            
-            // Video başlığını metadata.json dosyasına kaydet
-            if matches!(file_ext.to_lowercase().as_str(), "mp4" | "webm" | "mov") && !title.is_empty() {
-                let metadata_path = format!("{}/{}.json", UPLOAD_DIR, random_id);
-                let metadata = format!(r#"{{"title": "{}", "filename": "{}.{}"}}"#, title, random_id, file_ext);
-                fs::write(metadata_path, metadata)?;
-            }
-
-            return Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html));
-        } else {
-            return Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Dosya boş görünüyor. Lütfen geçerli bir medya dosyası seçin."));
+        // Dosya türüne göre önizleme HTML'i oluştur
+        let preview_html = match file_ext.to_lowercase().as_str() {
+            // Video formatları için
+            "mp4" | "webm" | "mov" => format!(
+                r#"<video width="100%" controls preload="metadata">
+                    <source src="/i/{}" type="video/{}" />
+                    Tarayıcınız video etiketini desteklemiyor.
+                </video>"#,
+                file_url,
+                if file_ext == "mov" { "mp4" } else { &file_ext }
+            ),
+            // Ses formatları için
+            "mp3" | "wav" | "ogg" | "m4a" => format!(
+                r#"<audio controls preload="metadata">
+                    <source src="/i/{}" type="audio/{}" />
+                    Tarayıcınız ses etiketini desteklemiyor.
+                </audio>"#,
+                file_url,
+                if file_ext == "m4a" { "mp4" } else { &file_ext }
+            ),
+            // Resim formatları için
+            _ => format!(r#"<img src="/i/{}" alt="Yüklenen resim" style="max-width: 100%;" loading="lazy">"#, file_url)
+        };
+        
+        let response_html = success_template
+            .replace("{PREVIEW}", &preview_html)
+            .replace("{FILE_URL}", &final_url);
+        
+        // Video başlığını metadata.json dosyasına kaydet
+        if matches!(file_ext.to_lowercase().as_str(), "mp4" | "webm" | "mov") && !title.is_empty() {
+            let metadata_path = format!("{}/{}.json", UPLOAD_DIR, random_id);
+            let metadata = format!(r#"{{"title": "{}", "filename": "{}.{}"}}"#, title, random_id, file_ext);
+            fs::write(metadata_path, metadata)?;
         }
+
+        return Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(response_html));
     }
 
     Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Lütfen bir medya dosyası seçin ve tekrar deneyin."))
@@ -241,6 +252,9 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(|| {
         App::new()
+            .app_data(web::JsonConfig::default().limit(MAX_FILE_SIZE))
+            .app_data(web::PayloadConfig::new(MAX_FILE_SIZE))
+            .app_data(web::FormConfig::default().limit(MAX_FILE_SIZE))
             .service(web::resource("/").to(index))
             .service(web::resource("/upload").to(upload))
             .service(web::resource("/i/{filename}").to(get_image))
