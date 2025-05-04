@@ -8,11 +8,29 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use mime_guess;
 use serde_json;
+use serde::{Deserialize, Serialize};
 
 const UPLOAD_DIR: &str = "uploads";
+const CHUNK_DIR: &str = "chunks";
 const URL_LENGTH: usize = 5;
-const MAX_FILE_SIZE: usize = 250_000_000; // 250 MB
+const MAX_FILE_SIZE: usize = 500_000_000; // 500 MB
+const CHUNK_SIZE: usize = 10_000_000; // 10 MB
 const SERVER_URL: &str = "http://localhost:22994"; // Sunucu URL'i
+
+#[derive(Deserialize)]
+struct ChunkUploadRequest {
+    chunk_number: usize,
+    total_chunks: usize,
+    file_id: String,
+    file_name: String,
+}
+
+#[derive(Serialize)]
+struct ChunkUploadResponse {
+    success: bool,
+    message: String,
+    file_id: String,
+}
 
 fn generate_random_string() -> String {
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -188,6 +206,102 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
     Ok(HttpResponse::BadRequest().content_type("text/html; charset=utf-8").body("Lütfen bir medya dosyası seçin ve tekrar deneyin."))
 }
 
+async fn upload_chunk(
+    mut payload: Multipart,
+    info: web::Json<ChunkUploadRequest>,
+) -> Result<HttpResponse, Error> {
+    if !Path::new(CHUNK_DIR).exists() {
+        fs::create_dir(CHUNK_DIR)?;
+    }
+
+    let chunk_dir = PathBuf::from(CHUNK_DIR).join(&info.file_id);
+    if !chunk_dir.exists() {
+        fs::create_dir(&chunk_dir)?;
+    }
+
+    let chunk_path = chunk_dir.join(format!("chunk_{}", info.chunk_number));
+    let chunk_path_clone = chunk_path.clone();
+    let mut file = web::block(move || std::fs::File::create(&chunk_path_clone))
+        .await
+        .unwrap()?;
+
+    let mut total_bytes = 0;
+    while let Some(mut field) = payload.try_next().await? {
+        let content_disposition = field.content_disposition().clone();
+        
+        if let Some(name) = content_disposition.get_name() {
+            if name == "chunk" {
+                while let Some(chunk) = field.next().await {
+                    let data = chunk?;
+                    total_bytes += data.len();
+                    
+                    // Chunk boyutu kontrolü
+                    if total_bytes > CHUNK_SIZE {
+                        // Chunk'ı sil ve hata döndür
+                        let chunk_path_clone = chunk_path.clone();
+                        let _ = web::block(move || std::fs::remove_file(&chunk_path_clone)).await;
+                        return Ok(HttpResponse::BadRequest()
+                            .json(ChunkUploadResponse {
+                                success: false,
+                                message: format!("Chunk boyutu çok büyük. Maksimum boyut: {} MB", CHUNK_SIZE / 1_000_000),
+                                file_id: info.file_id.clone(),
+                            }));
+                    }
+                    
+                    file = web::block(move || file.write_all(&data).map(|_| file))
+                        .await?
+                        .unwrap();
+                }
+            }
+        }
+    }
+
+    // Tüm chunk'lar yüklendi mi kontrol et
+    let all_chunks_uploaded = (1..=info.total_chunks)
+        .all(|i| chunk_dir.join(format!("chunk_{}", i)).exists());
+
+    if all_chunks_uploaded {
+        // Dosyayı birleştir
+        let final_path = PathBuf::from(UPLOAD_DIR).join(format!("{}.{}", 
+            info.file_id,
+            Path::new(&info.file_name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("mp4")
+        ));
+
+        let mut final_file = web::block(move || std::fs::File::create(&final_path))
+            .await
+            .unwrap()?;
+
+        for i in 1..=info.total_chunks {
+            let chunk_path = chunk_dir.join(format!("chunk_{}", i));
+            let chunk_data = web::block(move || fs::read(&chunk_path))
+                .await?
+                .unwrap();
+            
+            final_file = web::block(move || final_file.write_all(&chunk_data).map(|_| final_file))
+                .await?
+                .unwrap();
+        }
+
+        // Chunk'ları temizle
+        web::block(move || fs::remove_dir_all(&chunk_dir))
+            .await?
+            .unwrap();
+    }
+
+    Ok(HttpResponse::Ok().json(ChunkUploadResponse {
+        success: true,
+        message: if all_chunks_uploaded {
+            "Dosya başarıyla yüklendi ve birleştirildi".to_string()
+        } else {
+            format!("Chunk {}/{} başarıyla yüklendi", info.chunk_number, info.total_chunks)
+        },
+        file_id: info.file_id.clone(),
+    }))
+}
+
 async fn get_image(path: web::Path<String>) -> Result<NamedFile, Error> {
     let filename = path.into_inner();
     let file_path = PathBuf::from(UPLOAD_DIR).join(&filename);
@@ -268,6 +382,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::FormConfig::default().limit(MAX_FILE_SIZE))
             .service(web::resource("/").to(index))
             .service(web::resource("/upload").to(upload))
+            .service(web::resource("/upload/chunk").to(upload_chunk))
             .service(web::resource("/i/{filename}").to(get_image))
             .service(web::resource("/p/{filename}").to(get_preview))
     })
