@@ -15,9 +15,9 @@ const CHUNK_DIR: &str = "chunks";
 const URL_LENGTH: usize = 5;
 const MAX_FILE_SIZE: usize = 500_000_000; // 500 MB
 const CHUNK_SIZE: usize = 10_000_000; // 10 MB
-const SERVER_URL: &str = "http://localhost:22994"; // Sunucu URL'i
+const SERVER_URL: &str = "http://localhost:22994";
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ChunkUploadRequest {
     chunk_number: usize,
     total_chunks: usize,
@@ -25,11 +25,18 @@ struct ChunkUploadRequest {
     file_name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct ChunkUploadResponse {
     success: bool,
     message: String,
     file_id: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorResponse {
+    success: bool,
+    message: String,
+    error_code: String,
 }
 
 fn generate_random_string() -> String {
@@ -208,97 +215,200 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
 
 async fn upload_chunk(
     mut payload: Multipart,
-    info: web::Json<ChunkUploadRequest>,
 ) -> Result<HttpResponse, Error> {
     if !Path::new(CHUNK_DIR).exists() {
-        fs::create_dir(CHUNK_DIR)?;
-    }
-
-    let chunk_dir = PathBuf::from(CHUNK_DIR).join(&info.file_id);
-    if !chunk_dir.exists() {
-        fs::create_dir(&chunk_dir)?;
-    }
-
-    let chunk_path = chunk_dir.join(format!("chunk_{}", info.chunk_number));
-    let chunk_path_clone = chunk_path.clone();
-    let mut file = web::block(move || std::fs::File::create(&chunk_path_clone))
-        .await
-        .unwrap()?;
-
-    let mut total_bytes = 0;
-    while let Some(mut field) = payload.try_next().await? {
-        let content_disposition = field.content_disposition().clone();
-        
-        if let Some(name) = content_disposition.get_name() {
-            if name == "chunk" {
-                while let Some(chunk) = field.next().await {
-                    let data = chunk?;
-                    total_bytes += data.len();
-                    
-                    // Chunk boyutu kontrolü
-                    if total_bytes > CHUNK_SIZE {
-                        // Chunk'ı sil ve hata döndür
-                        let chunk_path_clone = chunk_path.clone();
-                        let _ = web::block(move || std::fs::remove_file(&chunk_path_clone)).await;
-                        return Ok(HttpResponse::BadRequest()
-                            .json(ChunkUploadResponse {
-                                success: false,
-                                message: format!("Chunk boyutu çok büyük. Maksimum boyut: {} MB", CHUNK_SIZE / 1_000_000),
-                                file_id: info.file_id.clone(),
-                            }));
-                    }
-                    
-                    file = web::block(move || file.write_all(&data).map(|_| file))
-                        .await?
-                        .unwrap();
-                }
+        match fs::create_dir(CHUNK_DIR) {
+            Ok(_) => (),
+            Err(_) => {
+                return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    message: "Sunucu hatası".to_string(),
+                    error_code: "SERVER_ERROR".to_string(),
+                }));
             }
         }
     }
 
-    // Tüm chunk'lar yüklendi mi kontrol et
+    let mut chunk_data: Option<Vec<u8>> = None;
+    let mut info: Option<ChunkUploadRequest> = None;
+
+    while let Some(mut field) = payload.try_next().await? {
+        let content_disposition = field.content_disposition().clone();
+        
+        if let Some(name) = content_disposition.get_name() {
+            match name {
+                "chunk" => {
+                    let mut data = Vec::new();
+                    while let Some(chunk) = field.next().await {
+                        match chunk {
+                            Ok(chunk_data) => data.extend_from_slice(&chunk_data),
+                            Err(_) => {
+                                return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+                                    success: false,
+                                    message: "Chunk verisi okunamadı".to_string(),
+                                    error_code: "CHUNK_READ_ERROR".to_string(),
+                                }));
+                            }
+                        }
+                    }
+                    chunk_data = Some(data);
+                },
+                "info" => {
+                    let mut buffer = Vec::new();
+                    while let Some(chunk) = field.next().await {
+                        match chunk {
+                            Ok(chunk_data) => buffer.extend_from_slice(&chunk_data),
+                            Err(_) => {
+                                return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+                                    success: false,
+                                    message: "Info verisi okunamadı".to_string(),
+                                    error_code: "INFO_READ_ERROR".to_string(),
+                                }));
+                            }
+                        }
+                    }
+                    let info_str = String::from_utf8_lossy(&buffer);
+                    match serde_json::from_str(&info_str) {
+                        Ok(parsed_info) => info = Some(parsed_info),
+                        Err(_) => {
+                            return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+                                success: false,
+                                message: "Geçersiz veri formatı".to_string(),
+                                error_code: "INVALID_FORMAT".to_string(),
+                            }));
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+    }
+
+    let (chunk_data, info) = match (chunk_data, info) {
+        (Some(data), Some(info)) => (data, info),
+        _ => {
+            return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                message: "Eksik veri".to_string(),
+                error_code: "MISSING_DATA".to_string(),
+            }));
+        }
+    };
+
+    let chunk_dir = PathBuf::from(CHUNK_DIR).join(&info.file_id);
+    if !chunk_dir.exists() {
+        if let Err(_) = fs::create_dir(&chunk_dir) {
+            return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                message: "Sunucu hatası".to_string(),
+                error_code: "SERVER_ERROR".to_string(),
+            }));
+        }
+    }
+
+    let chunk_path = chunk_dir.join(format!("chunk_{}", info.chunk_number));
+    let chunk_path_clone = chunk_path.clone();
+    if let Err(_) = web::block(move || std::fs::write(&chunk_path_clone, chunk_data)).await {
+        return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            message: "Sunucu hatası".to_string(),
+            error_code: "SERVER_ERROR".to_string(),
+        }));
+    }
+
     let all_chunks_uploaded = (1..=info.total_chunks)
         .all(|i| chunk_dir.join(format!("chunk_{}", i)).exists());
 
     if all_chunks_uploaded {
-        // Dosyayı birleştir
-        let final_path = PathBuf::from(UPLOAD_DIR).join(format!("{}.{}", 
+        let file_name = format!("{}.{}", 
             info.file_id,
             Path::new(&info.file_name)
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("mp4")
-        ));
+        );
+        
+        let final_path = PathBuf::from(UPLOAD_DIR).join(&file_name);
+        let final_path_clone = final_path.clone();
 
-        let mut final_file = web::block(move || std::fs::File::create(&final_path))
-            .await
-            .unwrap()?;
-
-        for i in 1..=info.total_chunks {
-            let chunk_path = chunk_dir.join(format!("chunk_{}", i));
-            let chunk_data = web::block(move || fs::read(&chunk_path))
-                .await?
-                .unwrap();
-            
-            final_file = web::block(move || final_file.write_all(&chunk_data).map(|_| final_file))
-                .await?
-                .unwrap();
+        // İlk dosyayı oluştur
+        if let Err(_) = web::block(move || std::fs::File::create(&final_path_clone)).await {
+            return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                message: "Sunucu hatası".to_string(),
+                error_code: "SERVER_ERROR".to_string(),
+            }));
         }
 
-        // Chunk'ları temizle
-        web::block(move || fs::remove_dir_all(&chunk_dir))
-            .await?
-            .unwrap();
+        // Chunk'ları sırayla birleştir
+        for i in 1..=info.total_chunks {
+            let chunk_path = chunk_dir.join(format!("chunk_{}", i));
+            let final_path = final_path.clone();
+            
+            let chunk_data = match web::block(move || fs::read(&chunk_path)).await {
+                Ok(Ok(data)) => data,
+                _ => {
+                    return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                        success: false,
+                        message: "Sunucu hatası".to_string(),
+                        error_code: "SERVER_ERROR".to_string(),
+                    }));
+                }
+            };
+
+            // Append modunda dosyaya yaz
+            let final_path_clone = final_path.clone();
+            if let Err(_) = web::block(move || {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open(&final_path_clone)?;
+                file.write_all(&chunk_data)
+            }).await {
+                return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    message: "Sunucu hatası".to_string(),
+                    error_code: "SERVER_ERROR".to_string(),
+                }));
+            }
+        }
+
+        let _ = web::block(move || fs::remove_dir_all(&chunk_dir)).await;
+
+        let success_template = match fs::read_to_string("templates/success.html") {
+            Ok(template) => template,
+            Err(_) => {
+                return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    message: "Sunucu hatası".to_string(),
+                    error_code: "SERVER_ERROR".to_string(),
+                }));
+            }
+        };
+
+        let file_url = file_name;
+        let final_url = format!("/p/{}", file_url);
+        let preview_html = format!(
+            r#"<video width="100%" controls preload="metadata">
+                <source src="/i/{}" type="video/mp4" />
+                Tarayıcınız video etiketini desteklemiyor.
+            </video>"#,
+            file_url
+        );
+        
+        let response_html = success_template
+            .replace("{PREVIEW}", &preview_html)
+            .replace("{FILE_URL}", &final_url);
+
+        return Ok(HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .body(response_html));
     }
 
     Ok(HttpResponse::Ok().json(ChunkUploadResponse {
         success: true,
-        message: if all_chunks_uploaded {
-            "Dosya başarıyla yüklendi ve birleştirildi".to_string()
-        } else {
-            format!("Chunk {}/{} başarıyla yüklendi", info.chunk_number, info.total_chunks)
-        },
-        file_id: info.file_id.clone(),
+        message: format!("Chunk {}/{} başarıyla yüklendi", info.chunk_number, info.total_chunks),
+        file_id: info.file_id,
     }))
 }
 

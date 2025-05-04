@@ -505,49 +505,97 @@
         document.getElementById('uploadForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            const formData = new FormData(this);
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Lütfen bir dosya seçin');
+                return;
+            }
+
             const progressContainer = document.getElementById('progressContainer');
             const progress = document.getElementById('progress');
             const progressText = document.getElementById('progressText');
             
             progressContainer.style.display = 'block';
             uploadButton.disabled = true;
-            
+
             try {
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', '/upload', true);
-                
-                xhr.upload.onprogress = function(e) {
-                    if (e.lengthComputable) {
-                        const percentComplete = (e.loaded / e.total) * 100;
-                        progress.style.width = percentComplete + '%';
-                        progressText.textContent = Math.round(percentComplete) + '%';
+                // Video dosyaları için chunk upload kullan
+                if (file.type.startsWith('video/')) {
+                    const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+                    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+                    const fileId = generateRandomId();
+
+                    for (let chunkNumber = 1; chunkNumber <= totalChunks; chunkNumber++) {
+                        const start = (chunkNumber - 1) * CHUNK_SIZE;
+                        const end = Math.min(start + CHUNK_SIZE, file.size);
+                        const chunk = file.slice(start, end);
+
+                        const formData = new FormData();
+                        formData.append('chunk', chunk);
+                        formData.append('info', JSON.stringify({
+                            chunk_number: chunkNumber,
+                            total_chunks: totalChunks,
+                            file_id: fileId,
+                            file_name: file.name
+                        }));
+
+                        try {
+                            const response = await fetch('/upload/chunk', {
+                                method: 'POST',
+                                body: formData
+                            });
+
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                throw new Error(`Chunk ${chunkNumber} yüklenirken hata: ${errorText}`);
+                            }
+
+                            const contentType = response.headers.get("content-type");
+                            if (contentType && contentType.includes("application/json")) {
+                                // Progress update
+                                const result = await response.json();
+                                const percentComplete = (chunkNumber / totalChunks) * 100;
+                                progress.style.width = percentComplete + '%';
+                                progressText.textContent = `Yükleniyor... ${Math.round(percentComplete)}%`;
+                            } else {
+                                // Final success page
+                                document.body.innerHTML = await response.text();
+                                return;
+                            }
+                        } catch (chunkError) {
+                            throw new Error(`Chunk ${chunkNumber} işlenirken hata: ${chunkError.message}`);
+                        }
                     }
-                };
-                
-                xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        document.body.innerHTML = xhr.responseText;
-                    } else {
-                        alert('Yükleme başarısız: ' + xhr.responseText);
-                        progressContainer.style.display = 'none';
-                        uploadButton.disabled = false;
+                } else {
+                    // Diğer dosya türleri için normal upload kullan
+                    const formData = new FormData(this);
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error('Yükleme başarısız: ' + errorText);
                     }
-                };
-                
-                xhr.onerror = function() {
-                    alert('Yükleme sırasında bir hata oluştu.');
-                    progressContainer.style.display = 'none';
-                    uploadButton.disabled = false;
-                };
-                
-                xhr.send(formData);
+
+                    document.body.innerHTML = await response.text();
+                }
             } catch (error) {
-                alert('Hata: ' + error.message);
                 progressContainer.style.display = 'none';
                 uploadButton.disabled = false;
+                alert('Hata: ' + error.message);
             }
         });
+
+        function generateRandomId() {
+            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let result = '';
+            for (let i = 0; i < 10; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
 
         // Tema yönetimi
         function loadTheme() {
