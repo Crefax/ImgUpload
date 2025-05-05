@@ -16,7 +16,7 @@ const UPLOAD_DIR: &str = "uploads";
 const CHUNK_DIR: &str = "chunks";
 const URL_LENGTH: usize = 5;
 const MAX_FILE_SIZE: usize = 500_000_000; // 500 MB
-const SERVER_URL: &str = "http://localhost:22994";
+const SERVER_URL: &str = "https://img.crefax.net"; // Domain adresinizi buraya yazın
 
 #[derive(Debug, Deserialize)]
 struct ChunkUploadRequest {
@@ -419,12 +419,11 @@ async fn get_preview(path: web::Path<String>) -> Result<HttpResponse, Error> {
                     "Video Önizleme".to_owned()
                 };
 
-                let video_url = format!("{}/i/{}", SERVER_URL, filename);
-                let _page_url = format!("{}/p/{}", SERVER_URL, filename);
-
+                let video_id = format!("{}.{}", file_stem, extension);
                 let response_html = preview_template
                     .replace("{TITLE}", &title)
-                    .replace("{FULL_URL}", &video_url);
+                    .replace("{BASE_URL}", SERVER_URL)
+                    .replace("{VIDEO_ID}", &video_id);
                     
                 Ok(HttpResponse::Ok()
                     .content_type("text/html; charset=utf-8")
