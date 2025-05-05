@@ -13,10 +13,10 @@
     <meta property="og:title" content="{TITLE}">
     <meta property="og:description" content="{TITLE} - Video önizlemesi">
     <meta property="og:type" content="video.other">
-    <meta property="og:url" content="{BASE_URL}/preview/{VIDEO_ID}">
-    <meta property="og:video" content="{BASE_URL}/videos/{VIDEO_ID}">
-    <meta property="og:video:url" content="{BASE_URL}/videos/{VIDEO_ID}">
-    <meta property="og:video:secure_url" content="{BASE_URL}/videos/{VIDEO_ID}">
+    <meta property="og:url" content="{BASE_URL}/i/{VIDEO_ID}">
+    <meta property="og:video" content="{BASE_URL}/i/{VIDEO_ID}">
+    <meta property="og:video:url" content="{BASE_URL}/i/{VIDEO_ID}">
+    <meta property="og:video:secure_url" content="{BASE_URL}/i/{VIDEO_ID}">
     <meta property="og:video:type" content="video/mp4">
     <meta property="og:video:width" content="1280">
     <meta property="og:video:height" content="720">
@@ -26,14 +26,14 @@
     <meta name="twitter:card" content="player">
     <meta name="twitter:title" content="{TITLE}">
     <meta name="twitter:description" content="{TITLE} - Video önizlemesi">
-    <meta name="twitter:player" content="{BASE_URL}/preview/{VIDEO_ID}">
+    <meta name="twitter:player" content="{BASE_URL}/i/{VIDEO_ID}">
     <meta name="twitter:player:width" content="1280">
     <meta name="twitter:player:height" content="720">
-    <meta name="twitter:player:stream" content="{BASE_URL}/videos/{VIDEO_ID}">
+    <meta name="twitter:player:stream" content="{BASE_URL}/i/{VIDEO_ID}">
     <meta name="twitter:player:stream:content_type" content="video/mp4">
     
     <!-- Ek Meta -->
-    <link rel="video_src" href="{BASE_URL}/videos/{VIDEO_ID}">
+    <link rel="video_src" href="{BASE_URL}/i/{VIDEO_ID}">
     <meta name="medium" content="video">
     <meta property="og:video:duration" content="0">
     <meta name="robots" content="max-image-preview:large">
@@ -94,11 +94,11 @@
     <div class="video-container">
         <h1>{TITLE}</h1>
         <video controls preload="metadata" poster="{BASE_URL}/thumbnails/{VIDEO_ID}">
-            <source src="{BASE_URL}/videos/{VIDEO_ID}" type="video/mp4">
+            <source src="{BASE_URL}/i/{VIDEO_ID}" type="video/mp4">
             Tarayıcınız video etiketini desteklemiyor.
         </video>
         <div class="button-container">
-            <a href="{BASE_URL}/videos/{VIDEO_ID}" class="download-link" download>
+            <a href="{BASE_URL}/i/{VIDEO_ID}" class="download-link" download>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
                 </svg>
