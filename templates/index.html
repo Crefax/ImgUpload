@@ -372,6 +372,9 @@
 </head>
 <body>
     <div class="upload-form">
+        <button class="theme-toggle" onclick="toggleTheme()">
+            <i class="fas fa-sun"></i>
+        </button>
         <h1>Medya Yükleme</h1>
         <form id="uploadForm" enctype="multipart/form-data">
             <div class="file-input-container" id="dropZone">
@@ -521,7 +524,7 @@
             try {
                 // Video dosyaları için chunk upload kullan
                 if (file.type.startsWith('video/')) {
-                    const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+                    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
                     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
                     const fileId = generateRandomId();
 
@@ -530,19 +533,27 @@
                         const end = Math.min(start + CHUNK_SIZE, file.size);
                         const chunk = file.slice(start, end);
 
-                        const formData = new FormData();
-                        formData.append('chunk', chunk);
-                        formData.append('info', JSON.stringify({
+                        const chunkInfo = {
                             chunk_number: chunkNumber,
                             total_chunks: totalChunks,
                             file_id: fileId,
                             file_name: file.name
-                        }));
+                        };
 
                         try {
-                            const response = await fetch('/upload/chunk', {
+                            const queryString = new URLSearchParams(chunkInfo).toString();
+
+                            console.log(`Chunk ${chunkNumber} gönderiliyor:`, {
+                                size: chunk.size,
+                                info: chunkInfo
+                            });
+
+                            const response = await fetch(`/upload/chunk?${queryString}`, {
                                 method: 'POST',
-                                body: formData
+                                body: chunk,
+                                headers: {
+                                    'Content-Type': 'application/octet-stream'
+                                }
                             });
 
                             if (!response.ok) {
@@ -550,20 +561,31 @@
                                 throw new Error(`Chunk ${chunkNumber} yüklenirken hata: ${errorText}`);
                             }
 
-                            const contentType = response.headers.get("content-type");
-                            if (contentType && contentType.includes("application/json")) {
-                                // Progress update
-                                const result = await response.json();
-                                const percentComplete = (chunkNumber / totalChunks) * 100;
-                                progress.style.width = percentComplete + '%';
-                                progressText.textContent = `Yükleniyor... ${Math.round(percentComplete)}%`;
-                            } else {
-                                // Final success page
-                                document.body.innerHTML = await response.text();
+                            const responseText = await response.text();
+                            console.log(`Chunk ${chunkNumber} yanıtı:`, responseText);
+
+                            // Son chunk ise ve HTML yanıtı gelmişse
+                            if (chunkNumber === totalChunks && responseText.includes('<!DOCTYPE html>')) {
+                                document.body.innerHTML = responseText;
                                 return;
                             }
+
+                            // Progress update
+                            const percentComplete = (chunkNumber / totalChunks) * 100;
+                            progress.style.width = percentComplete + '%';
+                            progressText.textContent = `Yükleniyor... ${Math.round(percentComplete)}%`;
+
                         } catch (chunkError) {
-                            throw new Error(`Chunk ${chunkNumber} işlenirken hata: ${chunkError.message}`);
+                            console.error(`Chunk ${chunkNumber} hatası:`, {
+                                error: chunkError,
+                                chunk: {
+                                    size: chunk.size,
+                                    start,
+                                    end
+                                },
+                                info: chunkInfo
+                            });
+                            throw chunkError;
                         }
                     }
                 } else {

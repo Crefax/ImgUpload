@@ -9,12 +9,13 @@ use std::path::{Path, PathBuf};
 use mime_guess;
 use serde_json;
 use serde::{Deserialize, Serialize};
+use bytes::Bytes;
+use log::{info, error, debug};
 
 const UPLOAD_DIR: &str = "uploads";
 const CHUNK_DIR: &str = "chunks";
 const URL_LENGTH: usize = 5;
 const MAX_FILE_SIZE: usize = 500_000_000; // 500 MB
-const CHUNK_SIZE: usize = 10_000_000; // 10 MB
 const SERVER_URL: &str = "http://localhost:22994";
 
 #[derive(Debug, Deserialize)]
@@ -214,90 +215,29 @@ async fn upload(mut payload: Multipart) -> Result<HttpResponse, Error> {
 }
 
 async fn upload_chunk(
-    mut payload: Multipart,
+    info: web::Query<ChunkUploadRequest>,
+    body: Bytes,
 ) -> Result<HttpResponse, Error> {
+    info!("Chunk yükleme isteği alındı: {:?}", info);
+    debug!("Chunk boyutu: {} bytes", body.len());
+
     if !Path::new(CHUNK_DIR).exists() {
-        match fs::create_dir(CHUNK_DIR) {
-            Ok(_) => (),
-            Err(_) => {
-                return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
-                    message: "Sunucu hatası".to_string(),
-                    error_code: "SERVER_ERROR".to_string(),
-                }));
-            }
-        }
-    }
-
-    let mut chunk_data: Option<Vec<u8>> = None;
-    let mut info: Option<ChunkUploadRequest> = None;
-
-    while let Some(mut field) = payload.try_next().await? {
-        let content_disposition = field.content_disposition().clone();
-        
-        if let Some(name) = content_disposition.get_name() {
-            match name {
-                "chunk" => {
-                    let mut data = Vec::new();
-                    while let Some(chunk) = field.next().await {
-                        match chunk {
-                            Ok(chunk_data) => data.extend_from_slice(&chunk_data),
-                            Err(_) => {
-                                return Ok(HttpResponse::BadRequest().json(ErrorResponse {
-                                    success: false,
-                                    message: "Chunk verisi okunamadı".to_string(),
-                                    error_code: "CHUNK_READ_ERROR".to_string(),
-                                }));
-                            }
-                        }
-                    }
-                    chunk_data = Some(data);
-                },
-                "info" => {
-                    let mut buffer = Vec::new();
-                    while let Some(chunk) = field.next().await {
-                        match chunk {
-                            Ok(chunk_data) => buffer.extend_from_slice(&chunk_data),
-                            Err(_) => {
-                                return Ok(HttpResponse::BadRequest().json(ErrorResponse {
-                                    success: false,
-                                    message: "Info verisi okunamadı".to_string(),
-                                    error_code: "INFO_READ_ERROR".to_string(),
-                                }));
-                            }
-                        }
-                    }
-                    let info_str = String::from_utf8_lossy(&buffer);
-                    match serde_json::from_str(&info_str) {
-                        Ok(parsed_info) => info = Some(parsed_info),
-                        Err(_) => {
-                            return Ok(HttpResponse::BadRequest().json(ErrorResponse {
-                                success: false,
-                                message: "Geçersiz veri formatı".to_string(),
-                                error_code: "INVALID_FORMAT".to_string(),
-                            }));
-                        }
-                    }
-                },
-                _ => {}
-            }
-        }
-    }
-
-    let (chunk_data, info) = match (chunk_data, info) {
-        (Some(data), Some(info)) => (data, info),
-        _ => {
-            return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+        info!("Chunk dizini oluşturuluyor: {}", CHUNK_DIR);
+        if let Err(e) = fs::create_dir(CHUNK_DIR) {
+            error!("Chunk dizini oluşturulamadı: {}", e);
+            return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
-                message: "Eksik veri".to_string(),
-                error_code: "MISSING_DATA".to_string(),
+                message: "Sunucu hatası".to_string(),
+                error_code: "SERVER_ERROR".to_string(),
             }));
         }
-    };
+    }
 
     let chunk_dir = PathBuf::from(CHUNK_DIR).join(&info.file_id);
     if !chunk_dir.exists() {
-        if let Err(_) = fs::create_dir(&chunk_dir) {
+        info!("Dosya için chunk dizini oluşturuluyor: {:?}", chunk_dir);
+        if let Err(e) = fs::create_dir(&chunk_dir) {
+            error!("Dosya chunk dizini oluşturulamadı: {}", e);
             return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 message: "Sunucu hatası".to_string(),
@@ -308,7 +248,11 @@ async fn upload_chunk(
 
     let chunk_path = chunk_dir.join(format!("chunk_{}", info.chunk_number));
     let chunk_path_clone = chunk_path.clone();
-    if let Err(_) = web::block(move || std::fs::write(&chunk_path_clone, chunk_data)).await {
+    info!("Chunk kaydediliyor: {:?}", chunk_path);
+    
+    // Chunk'ı kaydet
+    if let Err(e) = web::block(move || std::fs::write(&chunk_path_clone, &body)).await {
+        error!("Chunk kaydedilemedi: {}", e);
         return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
             success: false,
             message: "Sunucu hatası".to_string(),
@@ -316,10 +260,13 @@ async fn upload_chunk(
         }));
     }
 
+    info!("Chunk başarıyla kaydedildi: {:?}", chunk_path);
+
     let all_chunks_uploaded = (1..=info.total_chunks)
         .all(|i| chunk_dir.join(format!("chunk_{}", i)).exists());
 
     if all_chunks_uploaded {
+        info!("Tüm chunk'lar yüklendi, dosya birleştiriliyor");
         let file_name = format!("{}.{}", 
             info.file_id,
             Path::new(&info.file_name)
@@ -330,9 +277,11 @@ async fn upload_chunk(
         
         let final_path = PathBuf::from(UPLOAD_DIR).join(&file_name);
         let final_path_clone = final_path.clone();
+        info!("Final dosya yolu: {:?}", final_path);
 
         // İlk dosyayı oluştur
-        if let Err(_) = web::block(move || std::fs::File::create(&final_path_clone)).await {
+        if let Err(e) = web::block(move || std::fs::File::create(&final_path_clone)).await {
+            error!("Final dosya oluşturulamadı: {}", e);
             return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 message: "Sunucu hatası".to_string(),
@@ -343,11 +292,21 @@ async fn upload_chunk(
         // Chunk'ları sırayla birleştir
         for i in 1..=info.total_chunks {
             let chunk_path = chunk_dir.join(format!("chunk_{}", i));
-            let final_path = final_path.clone();
+            let chunk_path_clone = chunk_path.clone();
+            debug!("Chunk birleştiriliyor: {:?}", chunk_path_clone);
             
-            let chunk_data = match web::block(move || fs::read(&chunk_path)).await {
+            let chunk_data = match web::block(move || fs::read(&chunk_path_clone)).await {
                 Ok(Ok(data)) => data,
-                _ => {
+                Ok(Err(e)) => {
+                    error!("Chunk okuma hatası: {}", e);
+                    return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                        success: false,
+                        message: "Sunucu hatası".to_string(),
+                        error_code: "SERVER_ERROR".to_string(),
+                    }));
+                },
+                Err(e) => {
+                    error!("Chunk okunamadı: {}", e);
                     return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
                         success: false,
                         message: "Sunucu hatası".to_string(),
@@ -358,13 +317,14 @@ async fn upload_chunk(
 
             // Append modunda dosyaya yaz
             let final_path_clone = final_path.clone();
-            if let Err(_) = web::block(move || {
+            if let Err(e) = web::block(move || {
                 let mut file = std::fs::OpenOptions::new()
                     .write(true)
                     .append(true)
                     .open(&final_path_clone)?;
                 file.write_all(&chunk_data)
             }).await {
+                error!("Chunk dosyaya yazılamadı: {}", e);
                 return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     message: "Sunucu hatası".to_string(),
@@ -373,11 +333,13 @@ async fn upload_chunk(
             }
         }
 
+        info!("Tüm chunk'lar başarıyla birleştirildi");
         let _ = web::block(move || fs::remove_dir_all(&chunk_dir)).await;
 
         let success_template = match fs::read_to_string("templates/success.html") {
             Ok(template) => template,
-            Err(_) => {
+            Err(e) => {
+                error!("Success template okunamadı: {}", e);
                 return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     message: "Sunucu hatası".to_string(),
@@ -400,15 +362,17 @@ async fn upload_chunk(
             .replace("{PREVIEW}", &preview_html)
             .replace("{FILE_URL}", &final_url);
 
+        info!("Video yükleme işlemi başarıyla tamamlandı");
         return Ok(HttpResponse::Ok()
             .content_type("text/html; charset=utf-8")
             .body(response_html));
     }
 
+    info!("Chunk {}/{} başarıyla yüklendi", info.chunk_number, info.total_chunks);
     Ok(HttpResponse::Ok().json(ChunkUploadResponse {
         success: true,
         message: format!("Chunk {}/{} başarıyla yüklendi", info.chunk_number, info.total_chunks),
-        file_id: info.file_id,
+        file_id: info.file_id.clone(),
     }))
 }
 
@@ -456,7 +420,7 @@ async fn get_preview(path: web::Path<String>) -> Result<HttpResponse, Error> {
                 };
 
                 let video_url = format!("{}/i/{}", SERVER_URL, filename);
-                let page_url = format!("{}/p/{}", SERVER_URL, filename);
+                let _page_url = format!("{}/p/{}", SERVER_URL, filename);
 
                 let response_html = preview_template
                     .replace("{TITLE}", &title)
@@ -480,10 +444,11 @@ async fn get_preview(path: web::Path<String>) -> Result<HttpResponse, Error> {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix_web=info");
+    std::env::set_var("RUST_LOG", "actix_web=info,info");
     env_logger::init();
 
-    println!("Server running at http://localhost:22994");
+    info!("Sunucu başlatılıyor...");
+    info!("Server running at http://localhost:22994");
 
     HttpServer::new(|| {
         App::new()
